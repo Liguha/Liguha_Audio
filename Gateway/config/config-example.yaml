@@ -1,0 +1,13 @@
+http_server:
+  host:
+  port:
+  audio_url:
+  album_url:
+
+db:
+  address:
+  user_name:
+  password:
+  data_base:
+
+jwt_secret:
