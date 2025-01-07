@@ -175,3 +175,6 @@ cython_debug/
 /Gateway/cmd/config.yaml
 /Docker-Local/
 /Docker-Local/.docker-compose.yaml
+
+#inference
+.DS_Store
