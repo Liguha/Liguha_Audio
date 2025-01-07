@@ -1,0 +1,22 @@
+syntax = "proto3";
+
+package audio_preparer;
+
+message Audio 
+{
+  int32 sample_rate = 1;
+  repeated double data = 2;
+}
+
+message AudioResponse
+{
+  bool ok = 1;
+  string err = 2;
+  string id = 3;
+}
+
+service AudioPreparer 
+{
+  rpc find_audio (Audio) returns (AudioResponse);
+  rpc add_audio (Audio) returns (AudioResponse);
+}
