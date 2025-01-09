@@ -33,8 +33,13 @@ type S3 struct {
 	BucketName string `envconfig:"S3_BUCKET_NAME" validate:"required"`
 }
 
+type Clients struct {
+	AudioProcessingURL string `envconfig:"AUDIO_PROCESSING_URL" validate:"required"`
+}
+
 type Config struct {
 	HTTPServer HTTPServer
 	DB         DB
 	S3         S3
+	Clients    Clients
 }

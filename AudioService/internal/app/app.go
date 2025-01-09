@@ -1,12 +1,15 @@
 package app
 
 import (
+	"AudioService/internal/ports/events/rpc"
 	"AudioService/internal/ports/http/songs"
 	"context"
 	"fmt"
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/credentials"
 	"github.com/aws/aws-sdk-go/aws/session"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
 	"net/http"
 	"os"
 	"os/signal"
@@ -47,6 +50,11 @@ func (app *App) Run() {
 
 	db := app.initDB(ctx)
 	defer db.Close()
+
+	rpcSession := app.initGRPS()
+	defer rpcSession.Close()
+
+	client := rpc.NewAudioPreparerClient(rpcSession)
 
 	songsRepo := songsRepository.New(db, awsSession, app.cfg.S3.BucketName)
 	songsSvc := songsService.New(songsRepo)
@@ -90,6 +98,15 @@ func (app *App) initDB(ctx context.Context) *pgxpool.Pool {
 	}
 
 	return dbpool
+}
+
+func (app *App) initGRPS() *grpc.ClientConn {
+	conn, err := grpc.NewClient(app.cfg.Clients.AudioProcessingURL, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	if err != nil {
+		log.Fatalf("did not connect : %v", err)
+	}
+
+	return conn
 }
 
 func (app *App) runServer(handler http.Handler) {

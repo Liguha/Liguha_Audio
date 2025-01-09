@@ -13,7 +13,7 @@ import (
 )
 
 type addSongService interface {
-	AddSong(ctx context.Context, song api.CreateSongRequest) (uint64, error)
+	AddSong(ctx context.Context, song api.CreateSongRequest) error
 }
 
 func AddSong(songSvc addSongService) gin.HandlerFunc {
@@ -48,7 +48,7 @@ func AddSong(songSvc addSongService) gin.HandlerFunc {
 			Music:  buf,
 		}
 
-		if _, err = songSvc.AddSong(ctx, req); err != nil {
+		if err = songSvc.AddSong(ctx, req); err != nil {
 			log.Errorf("failed to add song %v", err)
 			c.AbortWithStatusJSON(http.StatusInternalServerError, err)
 			return

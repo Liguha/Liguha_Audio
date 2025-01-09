@@ -1,0 +1,23 @@
+syntax = "proto3";
+
+option go_package="/rpc";
+
+package audio_preparer;
+
+message Audio 
+{
+  string sample_rate = 1;
+}
+
+message AudioResponse
+{
+  bool ok = 1;
+  string err = 2;
+  string id = 3;
+}
+
+service AudioPreparer 
+{
+  rpc find_audio (Audio) returns (AudioResponse);
+  rpc add_audio (Audio) returns (AudioResponse);
+}
