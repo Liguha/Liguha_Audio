@@ -127,6 +127,9 @@ celerybeat.pid
 # SageMath parsed files
 *.sage.py
 
+# TMP scripts
+*(tmp).py
+
 # Environments
 .env
 .venv
@@ -170,6 +173,11 @@ cython_debug/
 # PyPI configuration file
 .pypirc
 
+# creds
+*creds.json
+
+# model
+*vggish_classifier_full.pth
 #Gateway
 /Gateway/.idea/
 /Gateway/cmd/config.yaml
