@@ -11,8 +11,8 @@ import (
 
 const (
 	authorizationHeader = "Authorization"
-	userIDHeader        = "x-user-id"
-	userRoleHeader      = "x-user-role"
+	userIDHeader        = "x-songs-id"
+	userRoleHeader      = "x-songs-role"
 )
 
 func JWTAuth(jwtSecret string) gin.HandlerFunc {
