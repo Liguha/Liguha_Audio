@@ -1,30 +1,66 @@
-from scipy import signal
+import torch
+import librosa
+import json
 import numpy as np
+import torch.nn as nn
 
-seg_len: int = 10       # length of vectorized segment in seconds
-overlap: float = 0.5    # overlap between segments in seg_len
-lims: list[int] = [20, 88, 350, 1350, 2794, 20000]
+import resampy
+from torchvision import models
 
-def vectorize_audio(fs: int, audio: np.ndarray) -> np.ndarray:
-    """Use sample rate and audio samples to create embedding."""
-    freqs, times, fft = signal.stft(audio, fs, nperseg=2048, noverlap=0)
-    fft = np.abs(fft).T
-    dots = []
-    for i in range(len(times)):
-        global_power = 0.3 * (np.max(fft[i]) + np.mean(fft[i]))
-        for j in range(1, len(lims)):
-            lhs = np.searchsorted(freqs, lims[j - 1], "left")
-            rhs = np.searchsorted(freqs, lims[j], "right")
-            local_power = 0.5 * (np.max(fft[i][lhs:rhs]) + np.mean(fft[i][lhs:rhs]))
-            idx = np.argmax(fft[i][lhs:rhs]) + lhs
-            if fft[i][idx] > max(local_power, global_power):
-                dots.append((times[i], freqs[idx]))
-    dots.sort()
-    # embedding = ...(dots) - NN usage
-    return np.array([audio[0], audio[1], audio[2]])
+SR = 16000
+N_MELS = 128
+MAX_TIME_FRAMES = 3000
+BATCH_SIZE = 1
+GENRE_TO_ID_PATH = "./files/genre_to_id.json"
+ID_TO_GENRE_PATH = "./files/id_to_genre.json"
 
-def make_segments(fs: int, audio: np.ndarray) -> list[tuple[int, np.ndarray]]:
-    n_samples = fs * seg_len
-    shift = int(n_samples * overlap)
-    n = len(audio) - n_samples
-    return [(fs, audio[i:(i + n_samples)]) for i in range(0, n, shift)]
+
+class VGGishClassifier(nn.Module):
+    def __init__(self, num_classes):
+        super(VGGishClassifier, self).__init__()
+        self.vggish = models.vgg16(pretrained=True)
+        self.vggish.classifier[6] = nn.Linear(4096, num_classes)
+
+    def forward(self, x, return_embeddings=False):
+        x = self.vggish.features(x)
+        x = self.vggish.avgpool(x)
+        x = torch.flatten(x, 1)
+        embeddings = self.vggish.classifier[:-1](x)
+        if return_embeddings:
+            return embeddings, self.vggish.classifier[-1](embeddings)
+        return self.vggish.classifier[-1](embeddings)
+
+
+def compute_mel_spectrogram(audio, sr=SR, n_fft=1024, hop_length=512, n_mels=N_MELS):
+    mel_spec = librosa.feature.melspectrogram(
+        y=audio, sr=sr, n_fft=n_fft, hop_length=hop_length, n_mels=n_mels
+    )
+    mel_spec_db = librosa.power_to_db(mel_spec, ref=np.max)
+    return mel_spec_db
+
+def pad_spectrogram(mel_spec, max_frames=MAX_TIME_FRAMES):
+    if mel_spec.shape[1] < max_frames:
+        pad_width = max_frames - mel_spec.shape[1]
+        mel_spec = np.pad(mel_spec, ((0, 0), (0, pad_width)), mode='constant')
+    else:
+        mel_spec = mel_spec[:, :max_frames]
+    return mel_spec
+
+def vectorize(model: VGGishClassifier, fs: int, data: np.ndarray):
+    audio = resampy.resample(data, fs, SR)
+    mel_spec = compute_mel_spectrogram(audio)
+    mel_spec = pad_spectrogram(mel_spec)
+    mel_spec = np.expand_dims(mel_spec, axis=0)
+    mel_spec = np.repeat(mel_spec, 3, axis=0)
+    mel_spec_tensor = torch.tensor(mel_spec, dtype=torch.float32).unsqueeze(0).to(device)
+    with torch.no_grad():
+        embeddings, outputs = model(mel_spec_tensor, return_embeddings=True)
+        _, predicted = torch.max(outputs, 1)
+    genre = id_to_genre[str(predicted.item())]
+    embedding_vector = embeddings.cpu().numpy().flatten()
+    return genre, embedding_vector
+
+
+with open(ID_TO_GENRE_PATH, "r") as f:
+    id_to_genre = json.load(f)
+device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')

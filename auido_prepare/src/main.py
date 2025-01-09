@@ -1,51 +1,67 @@
-import grpc
-import sys
-import numpy as np
-from concurrent import futures
-from utils.vectorizer import vectorize_audio, make_segments
-from grpc_core import audio_preparer_pb2, audio_preparer_pb2_grpc
+import boto3
+import torch
+import psycopg2
+import json
+from flask import Flask, request, jsonify
 
-    
-class AudioPreparer(audio_preparer_pb2_grpc.AudioPreparer):
-    def find_audio(self, request: audio_preparer_pb2.Audio, 
-                   context: grpc.aio.ServicerContext) -> audio_preparer_pb2.AudioResponse:
-        fs = request.sample_rate
-        data = np.array(request.data).astype(float)
-        segments = make_segments(fs, data)
+from utils.audio_helper import bytes2audio, make_segments
+from utils.vectorizer import VGGishClassifier, vectorize
 
-        ok: bool = True
-        err: str = "No errors"
-        id: str = "Undefined"
-        if len(segments) < 1:
-            ok = False
-            err = "Segment too short"
-        else:
-            embedding = vectorize_audio(*segments[0])
-            # some magic with DB
-            id = "aboba"
-        return audio_preparer_pb2.AudioResponse(ok=ok, err=err, id=id)
+db_creds = json.load(open("./files/db_creds.json"))
+conn = psycopg2.connect(dbname=db_creds["db_name"], 
+                        user=db_creds["user"], 
+                        password=db_creds["password"], 
+                        host=db_creds["host"], 
+                        port=db_creds["port"])
 
-    def add_audio(self, request: audio_preparer_pb2.Audio, 
-                  context: grpc.aio.ServicerContext) -> audio_preparer_pb2.AudioResponse:
-        fs = request.sample_rate
-        data = np.array(request.data).astype(float)
-        segments = make_segments(fs, data)
-        # generate unique id with help of DB
-        ok: bool = False
-        err: str = "Audio is too short"
-        id: str = "aboba_new"
-        for seg in segments:
-            embedding = vectorize_audio(*seg)
-            # push to DB with id
-            ok = True
-            err = "No errors"
-        return audio_preparer_pb2.AudioResponse(ok=ok, err=err, )
+session = boto3.session.Session(profile_name='default')
+s3 = session.client(
+   service_name='s3',
+   endpoint_url='https://s3.cloud.ru'
+)
+bucket_name = "audiobucket"
+
+MODEL_PATH = "./files/vggish_classifier_full.pth"
+device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+model: VGGishClassifier = torch.load(MODEL_PATH, map_location=device)
+model = model.to(device)
 
 
-port = sys.argv[1]
-server = grpc.server(futures.ThreadPoolExecutor(max_workers=10))
-audio_preparer_pb2_grpc.add_AudioPreparerServicer_to_server(AudioPreparer(), server)
-server.add_insecure_port("[::]:" + port)
-server.start()
-print("Server started, listening on " + port)
-server.wait_for_termination()
+app = Flask("audio_processing")
+
+@app.route('/find_by_segment', methods=['POST'])
+def find_by_segment():
+    s3_id = request.get_json()["s3_id"]
+    response = s3.get_object(Bucket=bucket_name, Key=s3_id)
+    data = response['Body'].read()
+    fs, channels = bytes2audio(data)
+    segs = make_segments(channels[0])
+    if len(segs) > 0:
+        _, vec = vectorize(model, fs, segs[0])
+        vec = list(vec)
+        cur = conn.cursor()
+        cur.execute(f"SELECT song_id, embedding <-> '{vec}' AS distance\
+                    FROM music.vectors\
+                    ORDER BY distance\
+                    LIMIT 1;")
+        id, _ = cur.fetchall()[0]
+        return jsonify({"status": "ok", "id": id})
+    return jsonify({"status": "Error. Record too short"})
+
+@app.route('/add_audio', methods=['POST'])
+def add_audio():
+    cur = conn.cursor()
+    id = request.get_json()["id"]
+    response = s3.get_object(Bucket=bucket_name, Key=f"Song_{id}")
+    data = response['Body'].read()
+    fs, channels = bytes2audio(data)
+    x = channels[0]
+    # tag, _ = vectorize(model, fs, x)
+    segs = make_segments(fs, x)
+    for seg in segs:
+        _, vec = vectorize(model, fs, seg)
+        vec = list(vec)
+        cur.execute(f"INSERT INTO music.vectors (embedding, song_id) VALUES ('{vec}', {id})")
+    conn.commit()
+
+app.run(port=7001)

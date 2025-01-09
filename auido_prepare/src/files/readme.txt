@@ -1,0 +1,1 @@
+Here should be model checkpoint - vggish_classifier_full.pth

@@ -1,4 +1,9 @@
 numpy
 scipy
-grpcio
-grpcio-tools
+resampy
+pydub
+flask
+boto3
+torch
+librosa
+torchvision

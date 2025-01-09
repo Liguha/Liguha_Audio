@@ -2,6 +2,8 @@ FROM python:3.10
 
 WORKDIR /usr/src/app
 COPY ./src .
+COPY ./creds ~/.aws
+COPY ./creds/db_creds.json ./files/
 
 # RUN pip install --upgrade pip
 RUN pip install -r requirements.txt
